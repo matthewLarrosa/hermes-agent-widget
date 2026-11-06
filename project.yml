@@ -1,0 +1,97 @@
+name: HermesAgentWidget
+options:
+  deploymentTarget:
+    macOS: '15.0'
+    iOS: '18.0'
+packages:
+  HermesCore:
+    path: .
+settings:
+  base:
+    SWIFT_VERSION: '6.0'
+    MARKETING_VERSION: '0.1.0'
+    CURRENT_PROJECT_VERSION: '1'
+    CODE_SIGN_STYLE: Automatic
+targetTemplates:
+  App:
+    type: application
+    sources: [Apps, Shared]
+    dependencies:
+      - package: HermesCore
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+    entitlements:
+      path: Config/${target_name}.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.application-groups: [group.com.mlarrosa.HermesAgentWidget]
+    info:
+      path: Config/${target_name}-Info.plist
+      properties:
+        CFBundleDisplayName: Hermes Widget
+        CFBundleURLTypes:
+          - CFBundleURLName: Hermes launcher
+            CFBundleURLSchemes: [hermeswidget]
+        UILaunchScreen: {}
+  Widget:
+    type: app-extension
+    sources: [Widgets, Shared]
+    dependencies:
+      - package: HermesCore
+    settings:
+      base:
+        SKIP_INSTALL: YES
+    entitlements:
+      path: Config/${target_name}.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.application-groups: [group.com.mlarrosa.HermesAgentWidget]
+    info:
+      path: Config/${target_name}-Info.plist
+      properties:
+        CFBundleDisplayName: Hermes
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+targets:
+  HermesMac:
+    templates: [App]
+    platform: macOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mlarrosa.HermesAgentWidget.macOS
+    dependencies:
+      - target: HermesMacWidget
+        embed: true
+  HermesMacWidget:
+    templates: [Widget]
+    platform: macOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mlarrosa.HermesAgentWidget.macOS.Widget
+  HermesIOS:
+    templates: [App]
+    platform: iOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mlarrosa.HermesAgentWidget.iOS
+        TARGETED_DEVICE_FAMILY: '1,2'
+    dependencies:
+      - target: HermesIOSWidget
+        embed: true
+  HermesIOSWidget:
+    templates: [Widget]
+    platform: iOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mlarrosa.HermesAgentWidget.iOS.Widget
+        TARGETED_DEVICE_FAMILY: '1,2'
+schemes:
+  HermesMac:
+    build:
+      targets:
+        HermesMac: all
+  HermesIOS:
+    build:
+      targets:
+        HermesIOS: all

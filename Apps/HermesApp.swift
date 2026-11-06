@@ -21,6 +21,19 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    HStack(spacing: 14) {
+                        Image("HermesBrand")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 64, height: 64)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                        VStack(alignment: .leading) {
+                            Text("Hermes Agent Widget").font(.headline)
+                            Text("One tap to your Hermes.").foregroundStyle(.secondary)
+                        }
+                    }
+                }
                 #if os(macOS)
                 localHermesSection
                 #endif

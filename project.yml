@@ -15,12 +15,13 @@ settings:
 targetTemplates:
   App:
     type: application
-    sources: [Apps, Shared]
+    sources: [Apps, Shared, Resources/SharedAssets.xcassets, Resources/AppAssets.xcassets]
     dependencies:
       - package: HermesCore
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     entitlements:
       path: Config/${target_name}.entitlements
       properties:
@@ -38,7 +39,7 @@ targetTemplates:
         UILaunchScreen: {}
   Widget:
     type: app-extension
-    sources: [Widgets, Shared]
+    sources: [Widgets, Shared, Resources/SharedAssets.xcassets]
     dependencies:
       - package: HermesCore
     settings:

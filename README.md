@@ -13,7 +13,7 @@ Implemented:
 - Small and medium WidgetKit layouts using native appearance.
 - Shared routing/validation package with unit tests.
 
-**Not release-ready:** CLI discovery/interactive Terminal launch is not implemented; CLI selection currently displays recovery instructions. Automatic only detects Desktop in this preview. Editing existing destinations, installation-summary rendering, signed App Group/device checks, and physical-device link verification remain outstanding. Do not treat this preview as fulfillment of the full design.
+**Not release-ready:** CLI discovery and Terminal handoff are implemented, but signed sandbox behavior is not verified because no code-signing identity is installed. Signed App Group/device checks and physical-device messaging-link verification remain outstanding. Do not treat unsigned builds as proof of release behavior.
 
 ## Build
 

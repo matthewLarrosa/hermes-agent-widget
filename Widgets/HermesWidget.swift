@@ -45,8 +45,9 @@ struct Provider: AppIntentTimelineProvider {
     func timeline(for configuration: Configuration, in context: Context) async -> Timeline<Entry> { Timeline(entries: [make(configuration)], policy: .never) }
     private func make(_ configuration: Configuration) -> Entry {
         #if os(macOS)
-        let label = configuration.preference == .cli ? "Open Terminal" : (configuration.preference == .desktop ? "Open Desktop" : "Open Hermes")
-        return Entry(date: .now, title: label, subtitle: "Preferred launch", url: URL(string: "hermeswidget://launch/\(configuration.preference.rawValue)")!)
+        let summary = try? SharedStore.loadInstallation()
+        let presentation = macPresentation(configuration.preference, summary: summary ?? nil)
+        return Entry(date: .now, title: presentation.0, subtitle: presentation.1, url: URL(string: "hermeswidget://launch/\(configuration.preference.rawValue)")!)
         #else
         if let id = configuration.destination?.id, let items = try? SharedStore.load(), let item = items.first(where: { $0.id.uuidString == id }) {
             return Entry(date: .now, title: "Open \(item.kind.rawValue.capitalized)", subtitle: item.name, url: item.url)
@@ -54,6 +55,23 @@ struct Provider: AppIntentTimelineProvider {
         return Entry(date: .now, title: "Choose destination", subtitle: "Set up in Hermes", url: URL(string: "hermeswidget://setup")!)
         #endif
     }
+
+    #if os(macOS)
+    private func macPresentation(_ preference: MacChoice, summary: InstallationSummary?) -> (String, String) {
+        guard let summary else { return ("Open Hermes", "Set up in app") }
+        switch preference {
+        case .automatic:
+            if summary.desktopFound { return ("Open Desktop", "Hermes Desktop") }
+            if summary.cliFound { return ("Open Terminal", "Hermes CLI") }
+            return summary.accessRequired ? ("Set up Hermes", "CLI access needed") : ("Get Hermes", "Set up on this Mac")
+        case .desktop:
+            return summary.desktopFound ? ("Open Desktop", "Hermes Desktop") : ("Set up Desktop", "Hermes Desktop not found")
+        case .cli:
+            if summary.cliFound { return ("Open Terminal", "Hermes CLI") }
+            return summary.accessRequired ? ("Choose CLI", "Access needed") : ("Set up CLI", "Hermes CLI not found")
+        }
+    }
+    #endif
 }
 struct LauncherView: View {
     let entry: Entry

@@ -30,6 +30,8 @@ targetTemplates:
       path: Config/${target_name}-Info.plist
       properties:
         CFBundleDisplayName: Hermes Widget
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleURLTypes:
           - CFBundleURLName: Hermes launcher
             CFBundleURLSchemes: [hermeswidget]
@@ -51,6 +53,8 @@ targetTemplates:
       path: Config/${target_name}-Info.plist
       properties:
         CFBundleDisplayName: Hermes
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
 targets:

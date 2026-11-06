@@ -3,11 +3,21 @@ import HermesCore
 
 @main
 struct HermesApp: App {
-    var body: some Scene { WindowGroup { ContentView() } }
+    var body: some Scene {
+        #if os(macOS)
+        Window("Hermes Widget", id: "main") { ContentView() }
+        #else
+        WindowGroup { ContentView() }
+        #endif
+    }
 }
 
 struct ContentView: View {
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
+    #if os(macOS)
+    @Environment(\.dismissWindow) private var dismissWindow
+    #endif
     @State private var destinations: [Destination] = []
     @State private var editingID: UUID?
     @State private var name = ""
@@ -23,14 +33,20 @@ struct ContentView: View {
             Form {
                 Section {
                     HStack(spacing: 14) {
-                        Image("HermesBrand")
+                        Image("HermesAgent")
                             .resizable()
+                            .renderingMode(.template)
                             .scaledToFit()
+                            .foregroundStyle(.black)
+                            .padding(8)
                             .frame(width: 64, height: 64)
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                            .background(.white, in: RoundedRectangle(cornerRadius: 14))
                         VStack(alignment: .leading) {
                             Text("Hermes Agent Widget").font(.headline)
                             Text("One tap to your Hermes.").foregroundStyle(.secondary)
+                            Text(BuildIdentity.label)
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -51,9 +67,15 @@ struct ContentView: View {
             .navigationTitle("Hermes")
             .task {
                 loadDestinations()
+                SharedStore.reloadWidgets()
                 #if os(macOS)
                 refreshInstallation()
                 #endif
+            }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                loadDestinations()
+                SharedStore.reloadWidgets()
             }
             .onOpenURL(perform: handleInternalURL)
         }
@@ -68,21 +90,29 @@ struct ContentView: View {
             LabeledContent("Hermes Desktop", value: installation.desktopURL == nil ? "Not found" : "Installed")
             LabeledContent("Hermes CLI", value: cliStatusLabel)
             HStack {
-                Button("Open Desktop") { launch(.desktop) }
+                Button("Open Desktop") { _ = launch(.desktop) }
                     .disabled(installation.desktopURL == nil)
-                Button("Open CLI") { launch(.cli) }
+                Button("Open CLI") { _ = launch(.cli) }
                     .disabled(cliURL == nil)
                 Button("Check again") { refreshInstallation() }
             }
-            if cliURL == nil {
-                Button("Choose Hermes CLI…") {
-                    if PreferredCLIStore.chooseExecutable() == nil {
-                        error = "No executable was selected or its access could not be saved."
-                    }
+            Button(cliURL == nil ? "Choose Hermes CLI…" : "Change Hermes CLI…") {
+                do {
+                    guard try PreferredCLIStore.chooseExecutable() != nil else { return }
                     refreshInstallation()
+                    if cliURL == nil {
+                        error = "Hermes was selected, but access could not be restored. Try choosing it again."
+                    }
+                } catch {
+                    self.error = "Could not save access to Hermes: \(error.localizedDescription)"
                 }
             }
-            Text("Each widget can independently choose Automatic, Desktop, or CLI.")
+            if cliURL == nil {
+                Text("macOS may block automatic access to ~/.local/bin. Choose the Hermes executable once to grant access. On this Mac it is usually ~/.local/bin/hermes.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Text("Each widget can independently choose Automatic, Desktop, CLI, or a saved destination.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -133,6 +163,12 @@ struct ContentView: View {
                     Text($0.rawValue.capitalized).tag($0)
                 }
             }
+            Label("Where to find this link", systemImage: "info.circle")
+                .font(.caption.weight(.semibold))
+                .help(destinationHelp)
+            Text(destinationHelp)
+                .font(.caption)
+                .foregroundStyle(.secondary)
             TextField("HTTPS conversation link", text: $address)
             HStack {
                 Button("Test link") { validate { openURL($0) } }
@@ -142,6 +178,17 @@ struct ContentView: View {
                 .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 if editingID != nil { Button("Cancel", action: clearEditor) }
             }
+        }
+    }
+
+    private var destinationHelp: String {
+        switch kind {
+        case .discord:
+            "Open the Discord channel or DM Hermes uses, then copy its link. Expected format: https://discord.com/channels/server-or-@me/channel-id"
+        case .telegram:
+            "Open the Hermes bot or chat in Telegram and copy its public t.me link. Example: https://t.me/hermes_bot"
+        case .dashboard:
+            "Paste the full HTTPS URL of your Hermes web dashboard or chat page. Example: https://hermes.example.com/chat"
         }
     }
 
@@ -202,10 +249,13 @@ struct ContentView: View {
     }
 
     private func handleInternalURL(_ url: URL) {
-        guard url.scheme == "hermeswidget" else { return }
+        guard url.scheme == "hermeswidget" else {
+            openURL(url)
+            return
+        }
         #if os(macOS)
         guard url.host == "launch", let preference = LaunchPreference(rawValue: String(url.path.dropFirst())) else { return }
-        launch(preference)
+        if launch(preference) { dismissWindow(id: "main") }
         #endif
     }
 
@@ -226,7 +276,8 @@ struct ContentView: View {
         }
     }
 
-    private func launch(_ preference: LaunchPreference) {
+    @discardableResult
+    private func launch(_ preference: LaunchPreference) -> Bool {
         refreshInstallation()
         let action = LaunchResolver.resolve(
             preference,
@@ -235,17 +286,20 @@ struct ContentView: View {
         )
         switch action {
         case .desktop:
-            guard let desktopURL = installation.desktopURL else { return }
+            guard let desktopURL = installation.desktopURL else { return false }
             MacLauncher.openDesktop(desktopURL) { failure in
                 if failure != nil { error = "Could not open Hermes Desktop." }
             }
+            return true
         case .cli:
-            guard let cliURL else { return }
+            guard let cliURL else { return false }
             do {
                 try MacLauncher.openCLI(cliURL)
                 error = nil
+                return true
             } catch {
                 self.error = error.localizedDescription
+                return false
             }
         case .setup:
             if preference == .desktop, cliURL != nil {
@@ -257,6 +311,7 @@ struct ContentView: View {
             } else {
                 openURL(installURL)
             }
+            return false
         }
     }
     #endif

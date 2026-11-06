@@ -9,8 +9,17 @@ struct MacInstallation {
 
     static func detect() -> MacInstallation {
         let desktop = locateDesktop()
-        let preferred = PreferredCLIStore.resolveBookmark()
-        let cliState = HermesCLILocator().locate(preferredURL: preferred)
+        let preferred = PreferredCLIStore.resolveURL()
+        let cliState: LocalTargetState
+        if let preferred {
+            // User explicitly selected this path. Terminal executes it outside the app sandbox.
+            cliState = .found(preferred)
+        } else if case .notFound = HermesCLILocator().locate() {
+            // The sandbox can hide ~/.local even when Hermes exists there.
+            cliState = .accessRequired
+        } else {
+            cliState = HermesCLILocator().locate()
+        }
         return MacInstallation(desktopURL: desktop, cliState: cliState)
     }
 
@@ -36,38 +45,25 @@ struct MacInstallation {
 }
 
 enum PreferredCLIStore {
-    private static let key = "preferredCLI.bookmark.v1"
+    private static let key = "preferredCLI.path.v2"
 
-    @MainActor static func chooseExecutable() -> URL? {
+    @MainActor static func chooseExecutable() throws -> URL? {
         let panel = NSOpenPanel()
         panel.title = "Choose Hermes CLI"
         panel.message = "Select the Hermes executable."
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".local/bin")
+        panel.nameFieldStringValue = "hermes"
         guard panel.runModal() == .OK, let url = panel.url else { return nil }
-        do {
-            let data = try url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
-            UserDefaults.standard.set(data, forKey: key)
-            return url
-        } catch {
-            return nil
-        }
+        UserDefaults.standard.set(url.path, forKey: key)
+        return url
     }
 
-    static func resolveBookmark() -> URL? {
-        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
-        var stale = false
-        guard let url = try? URL(
-            resolvingBookmarkData: data,
-            options: .withSecurityScope,
-            relativeTo: nil,
-            bookmarkDataIsStale: &stale
-        ) else { return nil }
-        if stale, let renewed = try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil) {
-            UserDefaults.standard.set(renewed, forKey: key)
-        }
-        return url
+    static func resolveURL() -> URL? {
+        guard let path = UserDefaults.standard.string(forKey: key), !path.isEmpty else { return nil }
+        return URL(fileURLWithPath: path)
     }
 }
 
@@ -75,13 +71,13 @@ enum MacLauncher {
     enum LaunchError: LocalizedError {
         case desktopFailed
         case cliScriptFailed
-        case terminalFailed
+        case terminalFailed(String)
 
         var errorDescription: String? {
             switch self {
             case .desktopFailed: "Could not open Hermes Desktop."
             case .cliScriptFailed: "Could not prepare the Hermes CLI launcher."
-            case .terminalFailed: "Could not open Hermes CLI in Terminal."
+            case let .terminalFailed(message): "Could not open Hermes CLI in Terminal: \(message)"
             }
         }
     }
@@ -108,7 +104,9 @@ enum MacLauncher {
         } catch {
             throw LaunchError.cliScriptFailed
         }
-        guard NSWorkspace.shared.open(launcher) else { throw LaunchError.terminalFailed }
+        guard NSWorkspace.shared.open(launcher) else {
+            throw LaunchError.terminalFailed(launcher.path)
+        }
     }
 }
 #endif

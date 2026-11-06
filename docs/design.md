@@ -93,7 +93,7 @@ CLI:
 
 Discovery outcomes must distinguish `found`, `notFound`, and `accessRequired`. Record diagnostics only in companion app.
 
-Store bookmarks and executable paths in companion-owned storage where possible. Widget needs only safe discovery summary, not authority to execute paths.
+Store the user-selected executable path in companion-owned storage. Widget needs only safe discovery summary, not authority to execute paths.
 
 ### Per-widget preference
 
@@ -364,7 +364,7 @@ If App Group unavailable, expose configuration error; do not silently fall back 
 - Internal links contain allowlisted action or saved destination ID only.
 - External activation must not allow arbitrary execution beyond explicit launcher actions.
 - Validate installed target on activation and handle changed/missing paths.
-- Store user-selected security-scoped bookmarks in app storage.
+- Store the user-selected executable path in app storage.
 - Redact private links and local paths from support logs by default.
 - Explain that opening a messaging link uses that app's existing account/session.
 

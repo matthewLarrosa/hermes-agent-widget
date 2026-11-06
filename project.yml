@@ -9,8 +9,8 @@ packages:
 settings:
   base:
     SWIFT_VERSION: '6.0'
-    MARKETING_VERSION: '0.1.0'
-    CURRENT_PROJECT_VERSION: '1'
+    MARKETING_VERSION: '0.7.0'
+    CURRENT_PROJECT_VERSION: '8'
     CODE_SIGN_STYLE: Automatic
 targetTemplates:
   App:
@@ -65,6 +65,10 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.mlarrosa.HermesAgentWidget.macOS
+    entitlements:
+      path: Config/HermesMac.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
     dependencies:
       - target: HermesMacWidget
         embed: true
@@ -73,7 +77,7 @@ targets:
     platform: macOS
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.mlarrosa.HermesAgentWidget.macOS.Widget
+        PRODUCT_BUNDLE_IDENTIFIER: com.mlarrosa.HermesAgentWidget.macOS.WidgetV3
   HermesIOS:
     templates: [App]
     platform: iOS

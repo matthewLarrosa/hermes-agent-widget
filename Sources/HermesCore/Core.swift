@@ -48,6 +48,10 @@ public struct HermesCLILocator {
     public func locate(in candidates: [URL]) -> LocalTargetState {
         var accessFailure = false
         for candidate in candidates {
+            let hasSecurityScope = candidate.startAccessingSecurityScopedResource()
+            defer {
+                if hasSecurityScope { candidate.stopAccessingSecurityScopedResource() }
+            }
             do {
                 let values = try candidate.resourceValues(forKeys: [
                     .isRegularFileKey,

@@ -2,6 +2,15 @@ import Foundation
 import HermesCore
 import WidgetKit
 
+enum BuildIdentity {
+    static var label: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "v\(version) (\(build))"
+    }
+}
+
 struct InstallationSummary: Codable, Equatable {
     let desktopFound: Bool
     let cliFound: Bool
@@ -30,6 +39,9 @@ enum SharedStore {
     static func saveInstallation(_ summary: InstallationSummary) throws {
         guard let defaults = UserDefaults(suiteName: group) else { throw StoreError.unavailable }
         defaults.set(try JSONEncoder().encode(summary), forKey: "installation.v1")
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+    static func reloadWidgets() {
         WidgetCenter.shared.reloadAllTimelines()
     }
     enum StoreError: Error { case unavailable }

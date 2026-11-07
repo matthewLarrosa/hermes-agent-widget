@@ -21,12 +21,16 @@ enum SharedStore {
     static let group = "group.com.mlarrosa.HermesAgentWidget"
     static func load() throws -> [Destination] {
         guard let defaults = UserDefaults(suiteName: group) else { throw StoreError.unavailable }
+        // Widget configuration runs out of process and can otherwise keep a stale
+        // app-group defaults cache after the setup app saves a destination.
+        defaults.synchronize()
         guard let data = defaults.data(forKey: "destinations.v1") else { return [] }
         return try JSONDecoder().decode([Destination].self, from: data)
     }
     static func save(_ items: [Destination]) throws {
         guard let defaults = UserDefaults(suiteName: group) else { throw StoreError.unavailable }
         defaults.set(try JSONEncoder().encode(items), forKey: "destinations.v1")
+        defaults.synchronize()
         WidgetCenter.shared.reloadAllTimelines()
     }
 

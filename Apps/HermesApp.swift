@@ -3,9 +3,15 @@ import HermesCore
 
 @main
 struct HermesApp: App {
+    #if os(macOS)
+    @NSApplicationDelegateAdaptor(MacAppDelegate.self) private var appDelegate
+    #endif
+
     var body: some Scene {
         #if os(macOS)
-        Window("Hermes Widget", id: "main") { ContentView() }
+        // AppKit delegate owns setup windows so launch URLs can hand off to Hermes
+        // without SwiftUI creating a companion window first.
+        Settings { EmptyView() }
         #else
         WindowGroup { ContentView() }
         #endif
@@ -15,9 +21,6 @@ struct HermesApp: App {
 struct ContentView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
-    #if os(macOS)
-    @Environment(\.dismissWindow) private var dismissWindow
-    #endif
     @State private var destinations: [Destination] = []
     @State private var editingID: UUID?
     @State private var name = ""
@@ -37,10 +40,8 @@ struct ContentView: View {
                             .resizable()
                             .renderingMode(.template)
                             .scaledToFit()
-                            .foregroundStyle(.black)
-                            .padding(8)
+                            .foregroundStyle(.primary)
                             .frame(width: 64, height: 64)
-                            .background(.white, in: RoundedRectangle(cornerRadius: 14))
                         VStack(alignment: .leading) {
                             Text("Hermes Agent Widget").font(.headline)
                             Text("One tap to your Hermes.").foregroundStyle(.secondary)
@@ -77,7 +78,9 @@ struct ContentView: View {
                 loadDestinations()
                 SharedStore.reloadWidgets()
             }
+            #if !os(macOS)
             .onOpenURL(perform: handleInternalURL)
+            #endif
         }
         #if os(macOS)
         .frame(minWidth: 480, minHeight: 540)
@@ -112,7 +115,7 @@ struct ContentView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Text("Each widget can independently choose Automatic, Desktop, CLI, or a saved destination.")
+            Text("Each widget can independently choose a saved destination, Hermes Desktop, or Hermes CLI.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -253,10 +256,6 @@ struct ContentView: View {
             openURL(url)
             return
         }
-        #if os(macOS)
-        guard url.host == "launch", let preference = LaunchPreference(rawValue: String(url.path.dropFirst())) else { return }
-        if launch(preference) { dismissWindow(id: "main") }
-        #endif
     }
 
     #if os(macOS)

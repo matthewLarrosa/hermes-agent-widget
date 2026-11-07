@@ -7,15 +7,34 @@ import HermesCore
 import AppKit
 #endif
 
-struct DestinationOptionsProvider: DynamicOptionsProvider {
-    func results() async throws -> [String] {
-        try SharedStore.load().map(\.name)
+struct DestinationEntity: AppEntity, Identifiable {
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Saved Destination")
+    static let defaultQuery = DestinationEntityQuery()
+
+    let id: UUID
+    let name: String
+
+    var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(title: "\(name)")
+    }
+}
+
+struct DestinationEntityQuery: EntityQuery {
+    func entities(for identifiers: [UUID]) async throws -> [DestinationEntity] {
+        let requested = Set(identifiers)
+        return try SharedStore.load()
+            .filter { requested.contains($0.id) }
+            .map { DestinationEntity(id: $0.id, name: $0.name) }
+    }
+
+    func suggestedEntities() async throws -> [DestinationEntity] {
+        try SharedStore.load().map { DestinationEntity(id: $0.id, name: $0.name) }
     }
 }
 
 struct MacOpenOptionsProvider: DynamicOptionsProvider {
     func results() async throws -> [String] {
-        ["Automatic", "Hermes Desktop", "Hermes CLI"]
+        ["Saved Destination", "Hermes Desktop", "Hermes CLI"]
     }
 }
 
@@ -26,25 +45,51 @@ struct CornerImageOptionsProvider: DynamicOptionsProvider {
 }
 
 private enum MacChoice: String {
-    case automatic, desktop, cli
+    case savedDestination = "destination"
+    case desktop, cli
 }
 
 struct LauncherConfigurationV4: WidgetConfigurationIntent {
     static let title: LocalizedStringResource = "Hermes launcher"
     #if os(macOS)
-    @Parameter(title: "Open", optionsProvider: MacOpenOptionsProvider()) var preference: String?
-    @Parameter(title: "Saved Destination", optionsProvider: DestinationOptionsProvider()) var destination: String?
+    @Parameter(title: "Open", optionsProvider: MacOpenOptionsProvider()) var openTarget: String?
+    @Parameter(title: "Saved Destination") var savedDestination: DestinationEntity?
     #else
-    @Parameter(title: "Destination", optionsProvider: DestinationOptionsProvider()) var destination: String?
+    @Parameter(title: "Destination") var savedDestination: DestinationEntity?
     #endif
     @Parameter(title: "Corner Image", optionsProvider: CornerImageOptionsProvider()) var cornerImage: String?
     @Parameter(title: "Action Label", default: "Ask Hermes") var actionLabel: String
+
+    init() {
+        #if os(macOS)
+        openTarget = "Saved Destination"
+        #endif
+    }
+
+    #if os(macOS)
+    static var parameterSummary: some ParameterSummary {
+        When(\.$openTarget, .equalTo, "Saved Destination") {
+            Summary {
+                \.$openTarget
+                \.$savedDestination
+                \.$cornerImage
+                \.$actionLabel
+            }
+        } otherwise: {
+            Summary {
+                \.$openTarget
+                \.$cornerImage
+                \.$actionLabel
+            }
+        }
+    }
+    #endif
 }
 
 struct OpenHermesWidgetAction: AppIntent {
     static let title: LocalizedStringResource = "Open Hermes"
     static let description = IntentDescription("Opens the destination selected for this Hermes widget.")
-    static let openAppWhenRun = true
+    static let openAppWhenRun = false
 
     @Parameter(title: "Destination") var urlString: String
 
@@ -56,51 +101,18 @@ struct OpenHermesWidgetAction: AppIntent {
         urlString = url.absoluteString
     }
 
+    #if os(macOS)
     func perform() async throws -> some IntentResult {
         let url = URL(string: urlString) ?? URL(string: "hermeswidget://setup")!
-        #if os(macOS)
         _ = NSWorkspace.shared.open(url)
         return .result()
-        #else
+    }
+    #else
+    func perform() async throws -> some IntentResult & OpensIntent {
+        let url = URL(string: urlString) ?? URL(string: "hermeswidget://setup")!
         return .result(opensIntent: OpenURLIntent(url))
-        #endif
     }
-}
-
-struct OpenAutomaticHermesAction: AppIntent {
-    static let title: LocalizedStringResource = "Open Hermes Automatically"
-    static let openAppWhenRun = true
-
-    func perform() async throws -> some IntentResult {
-        #if os(macOS)
-        _ = NSWorkspace.shared.open(URL(string: "hermeswidget://launch/automatic")!)
-        #endif
-        return .result()
-    }
-}
-
-struct OpenHermesDesktopAction: AppIntent {
-    static let title: LocalizedStringResource = "Open Hermes Desktop"
-    static let openAppWhenRun = true
-
-    func perform() async throws -> some IntentResult {
-        #if os(macOS)
-        _ = NSWorkspace.shared.open(URL(string: "hermeswidget://launch/desktop")!)
-        #endif
-        return .result()
-    }
-}
-
-struct OpenHermesCLIAction: AppIntent {
-    static let title: LocalizedStringResource = "Open Hermes CLI"
-    static let openAppWhenRun = true
-
-    func perform() async throws -> some IntentResult {
-        #if os(macOS)
-        _ = NSWorkspace.shared.open(URL(string: "hermeswidget://launch/cli")!)
-        #endif
-        return .result()
-    }
+    #endif
 }
 
 struct Entry: TimelineEntry {
@@ -138,24 +150,35 @@ struct Provider: AppIntentTimelineProvider {
 
     private func make(_ configuration: LauncherConfigurationV4) -> Entry {
         #if os(macOS)
-        logger.info("Widget configuration open=\(configuration.preference ?? "Automatic", privacy: .public) destinationSelected=\(configuration.destination != nil, privacy: .public) image=\(configuration.cornerImage ?? "Staff", privacy: .public)")
+        logger.info("Widget configuration open=\(configuration.openTarget ?? "Saved Destination", privacy: .public) destinationSelected=\(configuration.savedDestination != nil, privacy: .public) image=\(configuration.cornerImage ?? "Staff", privacy: .public)")
         #else
-        logger.info("Widget configuration destinationSelected=\(configuration.destination != nil, privacy: .public) image=\(configuration.cornerImage ?? "Staff", privacy: .public)")
+        logger.info("Widget configuration destinationSelected=\(configuration.savedDestination != nil, privacy: .public) image=\(configuration.cornerImage ?? "Staff", privacy: .public)")
         #endif
         let imageName = imageAsset(configuration.cornerImage)
         #if os(macOS)
-        if let item = selectedDestination(configuration.destination) {
+        let preference = macChoice(configuration.openTarget)
+        if preference == .savedDestination {
+            if let item = selectedDestination(configuration.savedDestination) {
+                return Entry(
+                    date: .now,
+                    title: "Open \(item.kind.rawValue.capitalized)",
+                    subtitle: item.name,
+                    url: item.url,
+                    imageName: imageName,
+                    actionLabel: label(configuration.actionLabel),
+                    buildLabel: BuildIdentity.label
+                )
+            }
             return Entry(
                 date: .now,
-                title: "Open \(item.kind.rawValue.capitalized)",
-                subtitle: item.name,
-                url: item.url,
+                title: "Choose destination",
+                subtitle: "Set up in Hermes",
+                url: URL(string: "hermeswidget://setup")!,
                 imageName: imageName,
                 actionLabel: label(configuration.actionLabel),
                 buildLabel: BuildIdentity.label
             )
         }
-        let preference = macChoice(configuration.preference)
         let summary = try? SharedStore.loadInstallation()
         let presentation = macPresentation(preference, summary: summary ?? nil)
         return Entry(
@@ -168,7 +191,7 @@ struct Provider: AppIntentTimelineProvider {
             buildLabel: BuildIdentity.label
         )
         #else
-        if let item = selectedDestination(configuration.destination) {
+        if let item = selectedDestination(configuration.savedDestination) {
             return Entry(
                 date: .now,
                 title: "Open \(item.kind.rawValue.capitalized)",
@@ -191,9 +214,9 @@ struct Provider: AppIntentTimelineProvider {
         #endif
     }
 
-    private func selectedDestination(_ selection: String?) -> Destination? {
+    private func selectedDestination(_ selection: DestinationEntity?) -> Destination? {
         guard let selection, let items = try? SharedStore.load() else { return nil }
-        return items.first { $0.name == selection }
+        return items.first { $0.id == selection.id }
     }
 
     private func imageAsset(_ selection: String?) -> String {
@@ -210,23 +233,21 @@ struct Provider: AppIntentTimelineProvider {
         switch selection?.lowercased() {
         case "hermes desktop": .desktop
         case "hermes cli": .cli
-        default: .automatic
+        default: .savedDestination
         }
     }
 
     private func macPresentation(_ preference: MacChoice, summary: InstallationSummary?) -> (title: String, subtitle: String) {
         guard let summary else {
             switch preference {
-            case .automatic: return ("Open Hermes", "Set up in app")
+            case .savedDestination: return ("Choose destination", "Set up in Hermes")
             case .desktop: return ("Open Desktop", "Hermes Desktop")
             case .cli: return ("Open Terminal", "Hermes CLI")
             }
         }
         switch preference {
-        case .automatic:
-            if summary.desktopFound { return ("Open Desktop", "Hermes Desktop") }
-            if summary.cliFound { return ("Open Terminal", "Hermes CLI") }
-            return summary.accessRequired ? ("Set up Hermes", "CLI access needed") : ("Get Hermes", "Set up on this Mac")
+        case .savedDestination:
+            return ("Choose destination", "Set up in Hermes")
         case .desktop:
             return summary.desktopFound ? ("Open Desktop", "Hermes Desktop") : ("Set up Desktop", "Hermes Desktop not found")
         case .cli:
@@ -252,7 +273,6 @@ struct LauncherView: View {
                         .scaledToFit()
                         .foregroundStyle(.primary)
                         .frame(width: 32, height: 32)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
                     VStack(alignment: .leading, spacing: 0) {
                         Text("Hermes").font(.headline)
                         #if DEBUG
@@ -269,27 +289,12 @@ struct LauncherView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
-            actionButton.buttonStyle(.plain)
+            Button(intent: OpenHermesWidgetAction(entry.url), label: actionButtonLabel)
+                .buttonStyle(.plain)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .widgetURL(settingsURL)
         .containerBackground(.background.tertiary, for: .widget)
-    }
-
-    @ViewBuilder
-    private var actionButton: some View {
-        if entry.url.host == "launch" {
-            switch String(entry.url.path.dropFirst()) {
-            case "desktop":
-                Button(intent: OpenHermesDesktopAction(), label: actionButtonLabel)
-            case "cli":
-                Button(intent: OpenHermesCLIAction(), label: actionButtonLabel)
-            default:
-                Button(intent: OpenAutomaticHermesAction(), label: actionButtonLabel)
-            }
-        } else {
-            Button(intent: OpenHermesWidgetAction(entry.url), label: actionButtonLabel)
-        }
     }
 
     private func actionButtonLabel() -> some View {

@@ -2,6 +2,91 @@
 import AppKit
 import Foundation
 import HermesCore
+import SwiftUI
+
+@MainActor
+final class MacAppDelegate: NSObject, NSApplicationDelegate {
+    private var setupWindow: NSWindow?
+    private var handledExternalURL = false
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // URL events arrive just after didFinishLaunching on a cold launch. Wait
+        // briefly before treating startup as an explicit app/settings launch.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, !self.handledExternalURL else { return }
+            self.showSetupWindow()
+        }
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        handledExternalURL = true
+        guard let url = urls.first, url.scheme == "hermeswidget" else { return }
+
+        if url.host == "launch",
+           let preference = LaunchPreference(rawValue: String(url.path.dropFirst())),
+           MacLaunchRouter.launch(preference) {
+            closeSetupWindow()
+            return
+        }
+        showSetupWindow()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showSetupWindow()
+        return true
+    }
+
+    private func showSetupWindow() {
+        if let setupWindow {
+            setupWindow.makeKeyAndOrderFront(nil)
+        } else {
+            let controller = NSHostingController(rootView: ContentView())
+            let window = NSWindow(contentViewController: controller)
+            window.title = "Hermes Widget"
+            window.setContentSize(NSSize(width: 620, height: 620))
+            window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+            window.isReleasedWhenClosed = false
+            window.center()
+            setupWindow = window
+            window.makeKeyAndOrderFront(nil)
+        }
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
+    private func closeSetupWindow() {
+        setupWindow?.orderOut(nil)
+    }
+}
+
+private enum MacLaunchRouter {
+    @MainActor static func launch(_ preference: LaunchPreference) -> Bool {
+        let installation = MacInstallation.detect()
+        let cliURL: URL?
+        if case let .found(url) = installation.cliState { cliURL = url } else { cliURL = nil }
+        let action = LaunchResolver.resolve(
+            preference,
+            desktop: installation.desktopURL != nil,
+            cli: cliURL != nil
+        )
+
+        switch action {
+        case .desktop:
+            guard let desktopURL = installation.desktopURL else { return false }
+            MacLauncher.openDesktop(desktopURL) { _ in }
+            return true
+        case .cli:
+            guard let cliURL else { return false }
+            do {
+                try MacLauncher.openCLI(cliURL)
+                return true
+            } catch {
+                return false
+            }
+        case .setup:
+            return false
+        }
+    }
+}
 
 struct MacInstallation {
     let desktopURL: URL?

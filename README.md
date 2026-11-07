@@ -8,7 +8,7 @@ Implemented:
 - SwiftUI companion apps for macOS and iOS.
 - Named Discord, Telegram, and HTTPS dashboard destinations: add, test link, delete.
 - iOS widget destination selection using AppEntity.
-- macOS Automatic/Desktop/CLI widget preference.
+- macOS Saved Destination/Desktop/CLI widget preference.
 - Desktop launch via Launch Services.
 - Small and medium WidgetKit layouts with an interactive action button and separate settings background.
 - Shared routing/validation package with unit tests.

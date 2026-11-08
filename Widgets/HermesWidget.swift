@@ -7,28 +7,18 @@ import HermesCore
 import AppKit
 #endif
 
-struct DestinationEntity: AppEntity, Identifiable {
-    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Saved Destination")
-    static let defaultQuery = DestinationEntityQuery()
+struct DestinationOptionsProvider: DynamicOptionsProvider {
+    private let logger = Logger(subsystem: "com.mlarrosa.HermesAgentWidget", category: "destination-options")
 
-    let id: UUID
-    let name: String
-
-    var displayRepresentation: DisplayRepresentation {
-        DisplayRepresentation(title: "\(name)")
-    }
-}
-
-struct DestinationEntityQuery: EntityQuery {
-    func entities(for identifiers: [UUID]) async throws -> [DestinationEntity] {
-        let requested = Set(identifiers)
-        return try SharedStore.load()
-            .filter { requested.contains($0.id) }
-            .map { DestinationEntity(id: $0.id, name: $0.name) }
-    }
-
-    func suggestedEntities() async throws -> [DestinationEntity] {
-        try SharedStore.load().map { DestinationEntity(id: $0.id, name: $0.name) }
+    func results() async throws -> [String] {
+        do {
+            let names = try SharedStore.load().map(\.name)
+            logger.info("Provided \(names.count, privacy: .public) saved destination options")
+            return names
+        } catch {
+            logger.error("Could not load saved destination options: \(error.localizedDescription, privacy: .public)")
+            return []
+        }
     }
 }
 
@@ -49,13 +39,13 @@ private enum MacChoice: String {
     case desktop, cli
 }
 
-struct LauncherConfigurationV4: WidgetConfigurationIntent {
+struct LauncherConfigurationV5: WidgetConfigurationIntent {
     static let title: LocalizedStringResource = "Hermes launcher"
     #if os(macOS)
     @Parameter(title: "Open", optionsProvider: MacOpenOptionsProvider()) var openTarget: String?
-    @Parameter(title: "Saved Destination") var savedDestination: DestinationEntity?
+    @Parameter(title: "Saved Destination", optionsProvider: DestinationOptionsProvider()) var destinationChoice: String?
     #else
-    @Parameter(title: "Destination") var savedDestination: DestinationEntity?
+    @Parameter(title: "Destination", optionsProvider: DestinationOptionsProvider()) var destinationChoice: String?
     #endif
     @Parameter(title: "Corner Image", optionsProvider: CornerImageOptionsProvider()) var cornerImage: String?
     @Parameter(title: "Action Label", default: "Ask Hermes") var actionLabel: String
@@ -71,7 +61,7 @@ struct LauncherConfigurationV4: WidgetConfigurationIntent {
         When(\.$openTarget, .equalTo, "Saved Destination") {
             Summary {
                 \.$openTarget
-                \.$savedDestination
+                \.$destinationChoice
                 \.$cornerImage
                 \.$actionLabel
             }
@@ -140,25 +130,25 @@ struct Provider: AppIntentTimelineProvider {
         )
     }
 
-    func snapshot(for configuration: LauncherConfigurationV4, in context: Context) async -> Entry {
+    func snapshot(for configuration: LauncherConfigurationV5, in context: Context) async -> Entry {
         make(configuration)
     }
 
-    func timeline(for configuration: LauncherConfigurationV4, in context: Context) async -> Timeline<Entry> {
+    func timeline(for configuration: LauncherConfigurationV5, in context: Context) async -> Timeline<Entry> {
         Timeline(entries: [make(configuration)], policy: .after(.now.addingTimeInterval(15 * 60)))
     }
 
-    private func make(_ configuration: LauncherConfigurationV4) -> Entry {
+    private func make(_ configuration: LauncherConfigurationV5) -> Entry {
         #if os(macOS)
-        logger.info("Widget configuration open=\(configuration.openTarget ?? "Saved Destination", privacy: .public) destinationSelected=\(configuration.savedDestination != nil, privacy: .public) image=\(configuration.cornerImage ?? "Staff", privacy: .public)")
+        logger.info("Widget configuration open=\(configuration.openTarget ?? "Saved Destination", privacy: .public) destinationSelected=\(configuration.destinationChoice != nil, privacy: .public) image=\(configuration.cornerImage ?? "Staff", privacy: .public)")
         #else
-        logger.info("Widget configuration destinationSelected=\(configuration.savedDestination != nil, privacy: .public) image=\(configuration.cornerImage ?? "Staff", privacy: .public)")
+        logger.info("Widget configuration destinationSelected=\(configuration.destinationChoice != nil, privacy: .public) image=\(configuration.cornerImage ?? "Staff", privacy: .public)")
         #endif
         let imageName = imageAsset(configuration.cornerImage)
         #if os(macOS)
         let preference = macChoice(configuration.openTarget)
         if preference == .savedDestination {
-            if let item = selectedDestination(configuration.savedDestination) {
+            if let item = selectedDestination(configuration.destinationChoice) {
                 return Entry(
                     date: .now,
                     title: "Open \(item.kind.rawValue.capitalized)",
@@ -191,7 +181,7 @@ struct Provider: AppIntentTimelineProvider {
             buildLabel: BuildIdentity.label
         )
         #else
-        if let item = selectedDestination(configuration.savedDestination) {
+        if let item = selectedDestination(configuration.destinationChoice) {
             return Entry(
                 date: .now,
                 title: "Open \(item.kind.rawValue.capitalized)",
@@ -214,9 +204,9 @@ struct Provider: AppIntentTimelineProvider {
         #endif
     }
 
-    private func selectedDestination(_ selection: DestinationEntity?) -> Destination? {
+    private func selectedDestination(_ selection: String?) -> Destination? {
         guard let selection, let items = try? SharedStore.load() else { return nil }
-        return items.first { $0.id == selection.id }
+        return items.first { $0.name == selection }
     }
 
     private func imageAsset(_ selection: String?) -> String {
@@ -314,7 +304,7 @@ struct LauncherView: View {
 @main
 struct HermesWidget: Widget {
     var body: some WidgetConfiguration {
-        AppIntentConfiguration(kind: "HermesLauncherV4", intent: LauncherConfigurationV4.self, provider: Provider()) {
+        AppIntentConfiguration(kind: "HermesLauncherV5", intent: LauncherConfigurationV5.self, provider: Provider()) {
             LauncherView(entry: $0)
         }
         .configurationDisplayName("Hermes")

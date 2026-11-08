@@ -78,6 +78,11 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.mlarrosa.HermesAgentWidget.macOS.WidgetV3
+    entitlements:
+      path: Config/HermesMacWidget.entitlements
+      properties:
+        com.apple.security.temporary-exception.files.home-relative-path.read-write:
+          - /Library/Application Support/HermesAgentWidget/
   HermesIOS:
     templates: [App]
     platform: iOS

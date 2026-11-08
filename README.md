@@ -7,7 +7,7 @@ One tap to Hermes, wherever you use it. Independent companion project; not an of
 Implemented:
 - SwiftUI companion apps for macOS and iOS.
 - Named Discord, Telegram, and HTTPS dashboard destinations: add, test link, delete.
-- iOS widget destination selection using AppEntity.
+- Dynamic saved-destination selection in widget configuration.
 - macOS Saved Destination/Desktop/CLI widget preference.
 - Desktop launch via Launch Services.
 - Small and medium WidgetKit layouts with an interactive action button and separate settings background.

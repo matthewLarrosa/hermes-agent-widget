@@ -8,6 +8,8 @@ INSTALL_APP="$INSTALL_DIR/Hermes Widget Dev.app"
 INSTALLED_EXTENSION="$INSTALL_APP/Contents/PlugIns/HermesMacWidget.appex"
 WIDGET_BUNDLE_ID="com.mlarrosa.HermesAgentWidget.macOS.WidgetV3"
 BUILD_NUMBER="$(date -u +%Y%m%d%H%M%S)"
+SHARED_DESTINATION_DIR="$HOME/Library/Application Support/HermesAgentWidget"
+SHARED_DESTINATION_FILE="$SHARED_DESTINATION_DIR/destinations.v1.json"
 
 cd "$ROOT"
 command -v xcodegen >/dev/null || {
@@ -44,6 +46,9 @@ fi
 
 pkill -x HermesMac 2>/dev/null || true
 pkill -x HermesMacWidget 2>/dev/null || true
+pkill -x WidgetConfigurationExtension 2>/dev/null || true
+killall linkd 2>/dev/null || true
+killall siriappintentsd 2>/dev/null || true
 
 rm -rf "$INSTALL_APP"
 mkdir -p "$INSTALL_DIR"
@@ -58,6 +63,21 @@ codesign --force --sign - --timestamp=none \
     --entitlements "$ROOT/Config/HermesMac.entitlements" \
     "$INSTALL_APP"
 codesign --verify --deep --strict "$INSTALL_APP"
+
+# Migrate data saved by older ad-hoc builds. macOS can detach App Group
+# UserDefaults from cfprefsd for ad-hoc App Intent processes, so current builds
+# use a narrowly sandboxed shared file instead.
+if [[ ! -f "$SHARED_DESTINATION_FILE" ]]; then
+    LEGACY_DEFAULTS="$(mktemp)"
+    if defaults export group.com.mlarrosa.HermesAgentWidget "$LEGACY_DEFAULTS" >/dev/null 2>&1; then
+        mkdir -p "$SHARED_DESTINATION_DIR"
+        if ! plutil -extract 'destinations\.v1' raw -o - "$LEGACY_DEFAULTS" \
+            | /usr/bin/base64 -D > "$SHARED_DESTINATION_FILE"; then
+            rm -f "$SHARED_DESTINATION_FILE"
+        fi
+    fi
+    rm -f "$LEGACY_DEFAULTS"
+fi
 
 REGISTERED=false
 for _ in {1..60}; do

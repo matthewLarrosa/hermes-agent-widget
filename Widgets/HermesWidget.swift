@@ -159,6 +159,7 @@ struct Provider: AppIntentTimelineProvider {
         let imageName = imageAsset(configuration.cornerImage)
         #if os(macOS)
         let preference = macChoice(openTarget)
+        let status = HermesStatusReader.load()
         if preference == .savedDestination {
             if let item = selectedDestination(configuration.destinationChoice) {
                 return Entry(
@@ -167,7 +168,7 @@ struct Provider: AppIntentTimelineProvider {
                     url: item.url,
                     imageName: imageName,
                     actionLabel: label(configuration.actionLabel),
-                    hermesStatus: nil
+                    hermesStatus: status
                 )
             }
             return Entry(
@@ -176,11 +177,10 @@ struct Provider: AppIntentTimelineProvider {
                 url: URL(string: "hermeswidget://setup")!,
                 imageName: imageName,
                 actionLabel: label(configuration.actionLabel),
-                hermesStatus: nil
+                hermesStatus: status
             )
         }
         let summary = try? SharedStore.loadInstallation()
-        let status = preference == .cli ? HermesStatusReader.load() : nil
         let subtitle = macSubtitle(preference, summary: summary ?? nil)
         return Entry(
             date: .now,
@@ -307,17 +307,17 @@ struct LauncherView: View {
         HStack(spacing: 4) {
             Circle()
                 .fill(status.isOnline ? Color.green.opacity(0.8) : Color.secondary.opacity(0.45))
-                .frame(width: 6, height: 6)
+                .frame(width: 7, height: 7)
             Text(status.isOnline ? "Online" : "Offline")
             Text("·")
             Text(status.model.isEmpty ? "—" : status.model)
             Text("·")
             Text(status.activity.rawValue)
         }
-        .font(.system(size: 11, weight: .semibold))
+        .font(.system(size: 12, weight: .semibold))
         .foregroundStyle(.secondary)
         .lineLimit(1)
-        .minimumScaleFactor(0.8)
+        .minimumScaleFactor(0.75)
     }
 }
 

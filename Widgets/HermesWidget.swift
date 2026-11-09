@@ -26,6 +26,19 @@ struct MacOpenOptionsProvider: DynamicOptionsProvider {
     func results() async throws -> [String] {
         ["Saved Destination", "Hermes Desktop", "Hermes CLI"]
     }
+
+    func defaultResult() async -> String? {
+        Self.preferredTarget()
+    }
+
+    static func preferredTarget() -> String {
+        guard let summary = try? SharedStore.loadInstallation() else {
+            return "Saved Destination"
+        }
+        if summary.desktopFound { return "Hermes Desktop" }
+        if summary.cliFound { return "Hermes CLI" }
+        return "Saved Destination"
+    }
 }
 
 struct CornerImageOptionsProvider: DynamicOptionsProvider {
@@ -52,7 +65,7 @@ struct LauncherConfigurationV5: WidgetConfigurationIntent {
 
     init() {
         #if os(macOS)
-        openTarget = "Saved Destination"
+        openTarget = MacOpenOptionsProvider.preferredTarget()
         #endif
     }
 
@@ -107,12 +120,10 @@ struct OpenHermesWidgetAction: AppIntent {
 
 struct Entry: TimelineEntry {
     let date: Date
-    let title: String
     let subtitle: String
     let url: URL
     let imageName: String
     let actionLabel: String
-    let buildLabel: String
 }
 
 struct Provider: AppIntentTimelineProvider {
@@ -121,12 +132,10 @@ struct Provider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> Entry {
         Entry(
             date: .now,
-            title: "Open Hermes",
             subtitle: "Your assistant",
             url: URL(string: "hermeswidget://setup")!,
             imageName: "HermesStaff",
-            actionLabel: "Ask Hermes",
-            buildLabel: BuildIdentity.label
+            actionLabel: "Ask Hermes"
         )
     }
 
@@ -140,66 +149,57 @@ struct Provider: AppIntentTimelineProvider {
 
     private func make(_ configuration: LauncherConfigurationV5) -> Entry {
         #if os(macOS)
-        logger.info("Widget configuration open=\(configuration.openTarget ?? "Saved Destination", privacy: .public) destinationSelected=\(configuration.destinationChoice != nil, privacy: .public) image=\(configuration.cornerImage ?? "Staff", privacy: .public)")
+        let openTarget = configuration.openTarget ?? MacOpenOptionsProvider.preferredTarget()
+        logger.info("Widget configuration open=\(openTarget, privacy: .public) destinationSelected=\(configuration.destinationChoice != nil, privacy: .public) image=\(configuration.cornerImage ?? "Staff", privacy: .public)")
         #else
         logger.info("Widget configuration destinationSelected=\(configuration.destinationChoice != nil, privacy: .public) image=\(configuration.cornerImage ?? "Staff", privacy: .public)")
         #endif
         let imageName = imageAsset(configuration.cornerImage)
         #if os(macOS)
-        let preference = macChoice(configuration.openTarget)
+        let preference = macChoice(openTarget)
         if preference == .savedDestination {
             if let item = selectedDestination(configuration.destinationChoice) {
                 return Entry(
                     date: .now,
-                    title: "Open \(item.kind.rawValue.capitalized)",
                     subtitle: item.name,
                     url: item.url,
                     imageName: imageName,
-                    actionLabel: label(configuration.actionLabel),
-                    buildLabel: BuildIdentity.label
+                    actionLabel: label(configuration.actionLabel)
                 )
             }
             return Entry(
                 date: .now,
-                title: "Choose destination",
                 subtitle: "Set up in Hermes",
                 url: URL(string: "hermeswidget://setup")!,
                 imageName: imageName,
-                actionLabel: label(configuration.actionLabel),
-                buildLabel: BuildIdentity.label
+                actionLabel: label(configuration.actionLabel)
             )
         }
         let summary = try? SharedStore.loadInstallation()
-        let presentation = macPresentation(preference, summary: summary ?? nil)
+        let subtitle = macSubtitle(preference, summary: summary ?? nil)
         return Entry(
             date: .now,
-            title: presentation.title,
-            subtitle: presentation.subtitle,
+            subtitle: subtitle,
             url: URL(string: "hermeswidget://launch/\(preference.rawValue)")!,
             imageName: imageName,
-            actionLabel: label(configuration.actionLabel),
-            buildLabel: BuildIdentity.label
+            actionLabel: label(configuration.actionLabel)
         )
         #else
         if let item = selectedDestination(configuration.destinationChoice) {
             return Entry(
                 date: .now,
-                title: "Open \(item.kind.rawValue.capitalized)",
                 subtitle: item.name,
                 url: item.url,
                 imageName: imageName,
-                actionLabel: label(configuration.actionLabel),
-                buildLabel: BuildIdentity.label
+                actionLabel: label(configuration.actionLabel)
             )
         }
         return Entry(
             date: .now,
-            title: "Choose destination",
             subtitle: "Set up in Hermes",
             url: URL(string: "hermeswidget://setup")!,
             imageName: imageName,
-            actionLabel: label(configuration.actionLabel),
-            buildLabel: BuildIdentity.label
+            actionLabel: label(configuration.actionLabel)
         )
         #endif
     }
@@ -227,22 +227,22 @@ struct Provider: AppIntentTimelineProvider {
         }
     }
 
-    private func macPresentation(_ preference: MacChoice, summary: InstallationSummary?) -> (title: String, subtitle: String) {
+    private func macSubtitle(_ preference: MacChoice, summary: InstallationSummary?) -> String {
         guard let summary else {
             switch preference {
-            case .savedDestination: return ("Choose destination", "Set up in Hermes")
-            case .desktop: return ("Open Desktop", "Hermes Desktop")
-            case .cli: return ("Open Terminal", "Hermes CLI")
+            case .savedDestination: return "Set up in Hermes"
+            case .desktop: return "Hermes Desktop"
+            case .cli: return "Hermes CLI"
             }
         }
         switch preference {
         case .savedDestination:
-            return ("Choose destination", "Set up in Hermes")
+            return "Set up in Hermes"
         case .desktop:
-            return summary.desktopFound ? ("Open Desktop", "Hermes Desktop") : ("Set up Desktop", "Hermes Desktop not found")
+            return summary.desktopFound ? "Hermes Desktop" : "Hermes Desktop not found"
         case .cli:
-            if summary.cliFound { return ("Open Terminal", "Hermes CLI") }
-            return summary.accessRequired ? ("Choose CLI", "Access needed") : ("Set up CLI", "Hermes CLI not found")
+            if summary.cliFound { return "Hermes CLI" }
+            return summary.accessRequired ? "CLI access needed" : "Hermes CLI not found"
         }
     }
     #endif
@@ -254,30 +254,20 @@ struct LauncherView: View {
     private let settingsURL = URL(string: "hermeswidget://setup")!
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Image(entry.imageName)
-                        .resizable()
-                        .renderingMode(.template)
-                        .scaledToFit()
-                        .foregroundStyle(.primary)
-                        .frame(width: 32, height: 32)
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text("Hermes").font(.headline)
-                        #if DEBUG
-                        Text(entry.buildLabel)
-                            .font(.system(size: 8, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                        #endif
-                    }
-                }
-                Spacer(minLength: 0)
-                Text(entry.title).font(.headline)
-                Text(entry.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(entry.imageName)
+                    .resizable()
+                    .renderingMode(.template)
+                    .scaledToFit()
+                    .foregroundStyle(.primary)
+                    .frame(width: 34, height: 34)
+                Text("Hermes").font(.headline)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            Spacer(minLength: 0)
+            Text(entry.subtitle)
+                .font(.headline)
+                .lineLimit(1)
 
             Button(intent: OpenHermesWidgetAction(entry.url), label: actionButtonLabel)
                 .buttonStyle(.plain)
@@ -293,11 +283,11 @@ struct LauncherView: View {
             Spacer(minLength: 4)
             Image(systemName: "arrow.up.right")
         }
-        .font(.callout.weight(.medium))
-        .padding(.horizontal, 10)
-        .frame(maxWidth: .infinity, minHeight: 30, maxHeight: 30)
-        .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 9))
-        .contentShape(RoundedRectangle(cornerRadius: 9))
+        .font(.headline)
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity, minHeight: 46, maxHeight: 46)
+        .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 12))
+        .contentShape(RoundedRectangle(cornerRadius: 12))
     }
 }
 

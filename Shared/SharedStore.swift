@@ -24,10 +24,11 @@ struct InstallationSummary: Codable, Equatable {
 enum SharedStore {
     static let group = "group.com.mlarrosa.HermesAgentWidget"
     private static let destinationsKey = "destinations.v1"
+    private static let installationKey = "installation.v1"
     private static let logger = Logger(subsystem: "com.mlarrosa.HermesAgentWidget", category: "shared-store")
 
     static func load() throws -> [Destination] {
-        let fileURL = try destinationsFileURL()
+        let fileURL = try sharedFileURL("destinations.v1.json")
         if let data = try? Data(contentsOf: fileURL) {
             logger.info("Loaded destinations from \(fileURL.path, privacy: .public)")
             return try JSONDecoder().decode([Destination].self, from: data)
@@ -46,7 +47,7 @@ enum SharedStore {
 
     static func save(_ items: [Destination]) throws {
         let data = try JSONEncoder().encode(items)
-        let fileURL = try destinationsFileURL()
+        let fileURL = try sharedFileURL("destinations.v1.json")
         try FileManager.default.createDirectory(
             at: fileURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -61,7 +62,7 @@ enum SharedStore {
         WidgetCenter.shared.reloadAllTimelines()
     }
 
-    private static func destinationsFileURL() throws -> URL {
+    private static func sharedFileURL(_ filename: String) throws -> URL {
         #if os(macOS)
         // Ad-hoc development signatures cannot use an App Group container
         // reliably. The widget has a narrow temporary sandbox exception for
@@ -78,18 +79,32 @@ enum SharedStore {
             forSecurityApplicationGroupIdentifier: group
         ) else { throw StoreError.unavailable }
         #endif
-        return container.appending(path: "destinations.v1.json")
+        return container.appending(path: filename)
     }
 
     static func loadInstallation() throws -> InstallationSummary? {
-        guard let defaults = UserDefaults(suiteName: group) else { throw StoreError.unavailable }
-        guard let data = defaults.data(forKey: "installation.v1") else { return nil }
+        let fileURL = try sharedFileURL("installation.v1.json")
+        if let data = try? Data(contentsOf: fileURL) {
+            return try JSONDecoder().decode(InstallationSummary.self, from: data)
+        }
+
+        guard let defaults = UserDefaults(suiteName: group),
+              let data = defaults.data(forKey: installationKey) else { return nil }
+        try data.write(to: fileURL, options: .atomic)
         return try JSONDecoder().decode(InstallationSummary.self, from: data)
     }
 
     static func saveInstallation(_ summary: InstallationSummary) throws {
+        let data = try JSONEncoder().encode(summary)
+        let fileURL = try sharedFileURL("installation.v1.json")
+        try FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: fileURL, options: .atomic)
+
         guard let defaults = UserDefaults(suiteName: group) else { throw StoreError.unavailable }
-        defaults.set(try JSONEncoder().encode(summary), forKey: "installation.v1")
+        defaults.set(data, forKey: installationKey)
         WidgetCenter.shared.reloadAllTimelines()
     }
     static func reloadWidgets() {

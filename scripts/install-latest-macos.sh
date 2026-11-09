@@ -10,6 +10,7 @@ WIDGET_BUNDLE_ID="com.mlarrosa.HermesAgentWidget.macOS.WidgetV3"
 BUILD_NUMBER="$(date -u +%Y%m%d%H%M%S)"
 SHARED_DESTINATION_DIR="$HOME/Library/Application Support/HermesAgentWidget"
 SHARED_DESTINATION_FILE="$SHARED_DESTINATION_DIR/destinations.v1.json"
+SHARED_INSTALLATION_FILE="$SHARED_DESTINATION_DIR/installation.v1.json"
 
 cd "$ROOT"
 command -v xcodegen >/dev/null || {
@@ -74,6 +75,18 @@ if [[ ! -f "$SHARED_DESTINATION_FILE" ]]; then
         if ! plutil -extract 'destinations\.v1' raw -o - "$LEGACY_DEFAULTS" \
             | /usr/bin/base64 -D > "$SHARED_DESTINATION_FILE"; then
             rm -f "$SHARED_DESTINATION_FILE"
+        fi
+    fi
+    rm -f "$LEGACY_DEFAULTS"
+fi
+
+if [[ ! -f "$SHARED_INSTALLATION_FILE" ]]; then
+    LEGACY_DEFAULTS="$(mktemp)"
+    if defaults export group.com.mlarrosa.HermesAgentWidget "$LEGACY_DEFAULTS" >/dev/null 2>&1; then
+        mkdir -p "$SHARED_DESTINATION_DIR"
+        if ! plutil -extract 'installation\.v1' raw -o - "$LEGACY_DEFAULTS" \
+            | /usr/bin/base64 -D > "$SHARED_INSTALLATION_FILE"; then
+            rm -f "$SHARED_INSTALLATION_FILE"
         fi
     fi
     rm -f "$LEGACY_DEFAULTS"

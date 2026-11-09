@@ -124,6 +124,7 @@ struct Entry: TimelineEntry {
     let url: URL
     let imageName: String
     let actionLabel: String
+    let hermesStatus: HermesStatus?
 }
 
 struct Provider: AppIntentTimelineProvider {
@@ -135,7 +136,8 @@ struct Provider: AppIntentTimelineProvider {
             subtitle: "Your assistant",
             url: URL(string: "hermeswidget://setup")!,
             imageName: "HermesStaff",
-            actionLabel: "Ask Hermes"
+            actionLabel: "Ask Hermes",
+            hermesStatus: nil
         )
     }
 
@@ -144,7 +146,7 @@ struct Provider: AppIntentTimelineProvider {
     }
 
     func timeline(for configuration: LauncherConfigurationV5, in context: Context) async -> Timeline<Entry> {
-        Timeline(entries: [make(configuration)], policy: .after(.now.addingTimeInterval(15 * 60)))
+        Timeline(entries: [make(configuration)], policy: .after(.now.addingTimeInterval(60)))
     }
 
     private func make(_ configuration: LauncherConfigurationV5) -> Entry {
@@ -164,7 +166,8 @@ struct Provider: AppIntentTimelineProvider {
                     subtitle: item.name,
                     url: item.url,
                     imageName: imageName,
-                    actionLabel: label(configuration.actionLabel)
+                    actionLabel: label(configuration.actionLabel),
+                    hermesStatus: nil
                 )
             }
             return Entry(
@@ -172,17 +175,20 @@ struct Provider: AppIntentTimelineProvider {
                 subtitle: "Set up in Hermes",
                 url: URL(string: "hermeswidget://setup")!,
                 imageName: imageName,
-                actionLabel: label(configuration.actionLabel)
+                actionLabel: label(configuration.actionLabel),
+                hermesStatus: nil
             )
         }
         let summary = try? SharedStore.loadInstallation()
-        let subtitle = macSubtitle(preference, summary: summary ?? nil)
+        let status = preference == .cli ? HermesStatusReader.load() : nil
+        let subtitle = status?.currentTask ?? macSubtitle(preference, summary: summary ?? nil)
         return Entry(
             date: .now,
             subtitle: subtitle,
             url: URL(string: "hermeswidget://launch/\(preference.rawValue)")!,
             imageName: imageName,
-            actionLabel: label(configuration.actionLabel)
+            actionLabel: label(configuration.actionLabel),
+            hermesStatus: status
         )
         #else
         if let item = selectedDestination(configuration.destinationChoice) {
@@ -191,7 +197,8 @@ struct Provider: AppIntentTimelineProvider {
                 subtitle: item.name,
                 url: item.url,
                 imageName: imageName,
-                actionLabel: label(configuration.actionLabel)
+                actionLabel: label(configuration.actionLabel),
+                hermesStatus: nil
             )
         }
         return Entry(
@@ -199,7 +206,8 @@ struct Provider: AppIntentTimelineProvider {
             subtitle: "Set up in Hermes",
             url: URL(string: "hermeswidget://setup")!,
             imageName: imageName,
-            actionLabel: label(configuration.actionLabel)
+            actionLabel: label(configuration.actionLabel),
+            hermesStatus: nil
         )
         #endif
     }
@@ -265,9 +273,14 @@ struct LauncherView: View {
                 Text("Hermes").font(.headline)
             }
             Spacer(minLength: 0)
-            Text(entry.subtitle)
-                .font(.headline)
-                .lineLimit(1)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(entry.subtitle)
+                    .font(.headline)
+                    .lineLimit(1)
+                if let status = entry.hermesStatus {
+                    statusLine(status)
+                }
+            }
 
             Button(intent: OpenHermesWidgetAction(entry.url), label: actionButtonLabel)
                 .buttonStyle(.plain)
@@ -288,6 +301,23 @@ struct LauncherView: View {
         .frame(maxWidth: .infinity, minHeight: 46, maxHeight: 46)
         .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 12))
         .contentShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func statusLine(_ status: HermesStatus) -> some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(status.isOnline ? Color.green.opacity(0.8) : Color.secondary.opacity(0.45))
+                .frame(width: 5, height: 5)
+            Text(status.isOnline ? "Online" : "Offline")
+            Text("·")
+            Text(status.model.isEmpty ? "—" : status.model)
+            Text("·")
+            Text(status.activity.rawValue)
+        }
+        .font(.system(size: 9, weight: .medium))
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .minimumScaleFactor(0.75)
     }
 }
 

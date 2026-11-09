@@ -83,6 +83,8 @@ targets:
       properties:
         com.apple.security.temporary-exception.files.home-relative-path.read-write:
           - /Library/Application Support/HermesAgentWidget/
+        com.apple.security.temporary-exception.files.home-relative-path.read-only:
+          - /.hermes/
   HermesIOS:
     templates: [App]
     platform: iOS

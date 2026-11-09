@@ -33,7 +33,6 @@ struct HermesStatus: Equatable {
     let isOnline: Bool
     let model: String
     let activity: HermesActivity
-    let currentTask: String?
 }
 
 #if os(macOS)
@@ -55,17 +54,11 @@ enum HermesStatusReader {
 
         let sql = """
             SELECT s.model,
-                   COALESCE(s.title, ''),
                    s.ended_at,
                    COALESCE(s.handoff_error, ''),
                    COALESCE(m.role, ''),
                    COALESCE(m.finish_reason, ''),
-                   COALESCE(m.timestamp, 0),
-                   COALESCE((
-                       SELECT content FROM messages
-                       WHERE session_id = s.id AND active = 1 AND role = 'user'
-                       ORDER BY timestamp DESC LIMIT 1
-                   ), '')
+                   COALESCE(m.timestamp, 0)
             FROM sessions s
             LEFT JOIN messages m ON m.id = (
                 SELECT id FROM messages
@@ -83,13 +76,11 @@ enum HermesStatusReader {
         guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
 
         let model = text(statement, column: 0)
-        let title = text(statement, column: 1)
-        let isOnline = sqlite3_column_type(statement, 2) == SQLITE_NULL
-        let handoffError = text(statement, column: 3)
-        let role = text(statement, column: 4)
-        let finishReason = text(statement, column: 5)
-        let latestTimestamp = sqlite3_column_double(statement, 6)
-        let latestPrompt = text(statement, column: 7)
+        let isOnline = sqlite3_column_type(statement, 1) == SQLITE_NULL
+        let handoffError = text(statement, column: 2)
+        let role = text(statement, column: 3)
+        let finishReason = text(statement, column: 4)
+        let latestTimestamp = sqlite3_column_double(statement, 5)
         let age = max(0, now.timeIntervalSince1970 - latestTimestamp)
 
         let activity: HermesActivity
@@ -107,13 +98,10 @@ enum HermesStatusReader {
             activity = .idle
         }
 
-        let taskSource = latestPrompt.isEmpty ? title : latestPrompt
-        let currentTask = activity == .idle ? nil : conciseTask(taskSource)
         return HermesStatus(
             isOnline: isOnline,
             model: model,
-            activity: activity,
-            currentTask: currentTask
+            activity: activity
         )
     }
 
@@ -122,14 +110,6 @@ enum HermesStatusReader {
         return String(cString: value)
     }
 
-    private static func conciseTask(_ value: String) -> String? {
-        let clean = value
-            .replacingOccurrences(of: "\n", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else { return nil }
-        if clean.count <= 34 { return clean }
-        return String(clean.prefix(33)).trimmingCharacters(in: .whitespaces) + "…"
-    }
 
     private static func realUserHomeURL() -> URL? {
         guard let passwordEntry = getpwuid(getuid()),

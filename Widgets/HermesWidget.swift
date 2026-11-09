@@ -181,7 +181,7 @@ struct Provider: AppIntentTimelineProvider {
         }
         let summary = try? SharedStore.loadInstallation()
         let status = preference == .cli ? HermesStatusReader.load() : nil
-        let subtitle = status?.currentTask ?? macSubtitle(preference, summary: summary ?? nil)
+        let subtitle = macSubtitle(preference, summary: summary ?? nil)
         return Entry(
             date: .now,
             subtitle: subtitle,
@@ -307,17 +307,17 @@ struct LauncherView: View {
         HStack(spacing: 4) {
             Circle()
                 .fill(status.isOnline ? Color.green.opacity(0.8) : Color.secondary.opacity(0.45))
-                .frame(width: 5, height: 5)
+                .frame(width: 6, height: 6)
             Text(status.isOnline ? "Online" : "Offline")
             Text("·")
             Text(status.model.isEmpty ? "—" : status.model)
             Text("·")
             Text(status.activity.rawValue)
         }
-        .font(.system(size: 9, weight: .medium))
+        .font(.system(size: 11, weight: .semibold))
         .foregroundStyle(.secondary)
         .lineLimit(1)
-        .minimumScaleFactor(0.75)
+        .minimumScaleFactor(0.8)
     }
 }
 

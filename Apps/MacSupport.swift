@@ -43,7 +43,8 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
             let controller = NSHostingController(rootView: ContentView())
             let window = NSWindow(contentViewController: controller)
             window.title = "Hermes Widget"
-            window.setContentSize(NSSize(width: 620, height: 620))
+            window.setContentSize(NSSize(width: 920, height: 760))
+            window.minSize = NSSize(width: 880, height: 680)
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             window.isReleasedWhenClosed = false
             window.center()

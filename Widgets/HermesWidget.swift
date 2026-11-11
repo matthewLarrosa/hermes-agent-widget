@@ -121,6 +121,7 @@ struct OpenHermesWidgetAction: AppIntent {
 struct Entry: TimelineEntry {
     let date: Date
     let subtitle: String
+    let detail: String
     let url: URL
     let imageName: String
     let actionLabel: String
@@ -134,6 +135,7 @@ struct Provider: AppIntentTimelineProvider {
         Entry(
             date: .now,
             subtitle: "Your assistant",
+            detail: "Saved Destination",
             url: URL(string: "hermeswidget://setup")!,
             imageName: "HermesStaff",
             actionLabel: "Ask Hermes",
@@ -165,6 +167,7 @@ struct Provider: AppIntentTimelineProvider {
                 return Entry(
                     date: .now,
                     subtitle: item.name,
+                    detail: "Saved Destination",
                     url: item.url,
                     imageName: imageName,
                     actionLabel: label(configuration.actionLabel),
@@ -174,6 +177,7 @@ struct Provider: AppIntentTimelineProvider {
             return Entry(
                 date: .now,
                 subtitle: "Set up in Hermes",
+                detail: "Saved Destination",
                 url: URL(string: "hermeswidget://setup")!,
                 imageName: imageName,
                 actionLabel: label(configuration.actionLabel),
@@ -185,9 +189,10 @@ struct Provider: AppIntentTimelineProvider {
         return Entry(
             date: .now,
             subtitle: subtitle,
+            detail: openTarget,
             url: URL(string: "hermeswidget://launch/\(preference.rawValue)")!,
             imageName: imageName,
-            actionLabel: label(configuration.actionLabel),
+            actionLabel: localActionLabel(configuration.actionLabel, preference: preference),
             hermesStatus: status
         )
         #else
@@ -195,6 +200,7 @@ struct Provider: AppIntentTimelineProvider {
             return Entry(
                 date: .now,
                 subtitle: item.name,
+                detail: item.kind.rawValue.capitalized,
                 url: item.url,
                 imageName: imageName,
                 actionLabel: label(configuration.actionLabel),
@@ -204,6 +210,7 @@ struct Provider: AppIntentTimelineProvider {
         return Entry(
             date: .now,
             subtitle: "Set up in Hermes",
+            detail: "Saved Destination",
             url: URL(string: "hermeswidget://setup")!,
             imageName: imageName,
             actionLabel: label(configuration.actionLabel),
@@ -253,71 +260,181 @@ struct Provider: AppIntentTimelineProvider {
             return summary.accessRequired ? "CLI access needed" : "Hermes CLI not found"
         }
     }
+
+    private func localActionLabel(_ configured: String, preference: MacChoice) -> String {
+        let configured = label(configured)
+        guard configured == "Ask Hermes" else { return configured }
+        switch preference {
+        case .savedDestination: return configured
+        case .desktop: return "Open Desktop"
+        case .cli: return "Open CLI"
+        }
+    }
     #endif
 }
 
 struct LauncherView: View {
+    @Environment(\.widgetFamily) private var family
+
     let entry: Entry
 
     private let settingsURL = URL(string: "hermeswidget://setup")!
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                Image(entry.imageName)
-                    .resizable()
-                    .renderingMode(.template)
-                    .scaledToFit()
-                    .foregroundStyle(.primary)
-                    .frame(width: 34, height: 34)
-                Text("Hermes").font(.headline)
+        Group {
+            if family == .systemMedium {
+                mediumLayout
+            } else {
+                smallLayout
             }
-            Spacer(minLength: 0)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(entry.subtitle)
-                    .font(.headline)
-                    .lineLimit(1)
-                if let status = entry.hermesStatus {
-                    statusLine(status)
-                }
-            }
-
-            Button(intent: OpenHermesWidgetAction(entry.url), label: actionButtonLabel)
-                .buttonStyle(.plain)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .foregroundStyle(primaryColor)
         .widgetURL(settingsURL)
-        .containerBackground(.background.tertiary, for: .widget)
+        .containerBackground(widgetBackground, for: .widget)
+        .padding(14)
     }
 
-    private func actionButtonLabel() -> some View {
-        HStack(spacing: 6) {
-            Text(entry.actionLabel).lineLimit(1)
-            Spacer(minLength: 4)
-            Image(systemName: "arrow.up.right")
+    private var smallLayout: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            identity
+            Spacer(minLength: 10)
+            Text(entry.subtitle)
+                .font(.system(size: 11, weight: .semibold))
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Text(smallDetail)
+                .font(.system(size: 8, weight: .regular))
+                .foregroundStyle(secondaryColor)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .padding(.top, 3)
+            actionButton
+                .padding(.top, 8)
         }
-        .font(.headline)
-        .padding(.horizontal, 14)
-        .frame(maxWidth: .infinity, minHeight: 46, maxHeight: 46)
-        .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 12))
-        .contentShape(RoundedRectangle(cornerRadius: 12))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var mediumLayout: some View {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 0) {
+                identity
+                Spacer(minLength: 10)
+                Text(entry.subtitle)
+                    .font(.system(size: 11, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if let status = entry.hermesStatus {
+                    statusLine(status)
+                        .padding(.top, 4)
+                } else {
+                    Text(entry.detail)
+                        .font(.system(size: 9, weight: .regular))
+                        .foregroundStyle(secondaryColor)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .padding(.top, 4)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+
+            actionButton
+                .frame(width: 120)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var identity: some View {
+        HStack(spacing: 1) {
+            Image(entry.imageName)
+                .resizable()
+                .renderingMode(.original)
+                .scaledToFit()
+                .frame(width: 30, height: 30)
+            Text("Hermes")
+                .font(.system(size: 12, weight: .semibold))
+                .lineLimit(1)
+        }
+        .frame(height: 30)
+    }
+
+    private var smallDetail: String {
+        guard entry.detail != "Saved Destination", let status = entry.hermesStatus else {
+            return "Saved Destination"
+        }
+        return status.isOnline ? "Online" : "Offline"
+    }
+
+    private var actionButton: some View {
+        Button(intent: OpenHermesWidgetAction(entry.url)) {
+            HStack(spacing: 4) {
+                Text(entry.actionLabel)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(1)
+                Spacer(minLength: 4)
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .frame(width: 10, height: 10)
+            }
+            .font(.system(size: 10.5, weight: .semibold))
+            .foregroundStyle(primaryColor)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40)
+            .background(actionBackground, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(entry.actionLabel)
+        .accessibilityHint("Opens the selected Hermes destination")
     }
 
     private func statusLine(_ status: HermesStatus) -> some View {
         HStack(spacing: 4) {
-            Circle()
-                .fill(status.isOnline ? Color.green.opacity(0.8) : Color.secondary.opacity(0.45))
-                .frame(width: 7, height: 7)
             Text(status.isOnline ? "Online" : "Offline")
             Text("·")
             Text(status.model.isEmpty ? "—" : status.model)
             Text("·")
             Text(status.activity.rawValue)
         }
-        .font(.system(size: 12, weight: .semibold))
-        .foregroundStyle(.secondary)
+        .font(.system(size: 9, weight: .regular))
+        .foregroundStyle(secondaryColor)
         .lineLimit(1)
-        .minimumScaleFactor(0.75)
+        .truncationMode(.tail)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var widgetBackground: Color {
+        #if os(macOS)
+        Color(red: 248 / 255, green: 248 / 255, blue: 247 / 255)
+        #else
+        Color(.systemBackground)
+        #endif
+    }
+
+    private var primaryColor: Color {
+        #if os(macOS)
+        Color(red: 21 / 255, green: 21 / 255, blue: 21 / 255)
+        #else
+        .primary
+        #endif
+    }
+
+    private var secondaryColor: Color {
+        #if os(macOS)
+        Color(red: 118 / 255, green: 118 / 255, blue: 115 / 255)
+        #else
+        .secondary
+        #endif
+    }
+
+    private var actionBackground: Color {
+        #if os(macOS)
+        Color(red: 232 / 255, green: 232 / 255, blue: 230 / 255)
+        #else
+        Color.secondary.opacity(0.12)
+        #endif
     }
 }
 
@@ -330,5 +447,7 @@ struct HermesWidget: Widget {
         .configurationDisplayName("Hermes")
         .description("One tap to your Hermes.")
         .supportedFamilies([.systemSmall, .systemMedium])
+        .containerBackgroundRemovable(false)
+        .contentMarginsDisabled()
     }
 }

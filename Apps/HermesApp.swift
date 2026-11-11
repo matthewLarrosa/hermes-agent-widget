@@ -27,45 +27,13 @@ struct ContentView: View {
     @State private var address = ""
     @State private var kind = DestinationKind.discord
     @State private var error: String?
+    @State private var showingEditor = false
     #if os(macOS)
     @State private var installation = MacInstallation.detect()
     #endif
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    HStack(spacing: 14) {
-                        Image("HermesAgent")
-                            .resizable()
-                            .renderingMode(.template)
-                            .scaledToFit()
-                            .foregroundStyle(.primary)
-                            .frame(width: 64, height: 64)
-                        VStack(alignment: .leading) {
-                            Text("Hermes Agent Widget").font(.headline)
-                            Text("One tap to your Hermes.").foregroundStyle(.secondary)
-                            Text(BuildIdentity.label)
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                #if os(macOS)
-                localHermesSection
-                #endif
-                destinationsSection
-                destinationEditor
-                if let error {
-                    Section { Text(error).foregroundStyle(.red) }
-                }
-                Section {
-                    Text("Add Hermes from the widget gallery. Edit each widget to choose what it opens. No server connection or tokens needed.")
-                    Link("Get Hermes", destination: installURL)
-                }
-            }
-            .formStyle(.grouped)
-            .navigationTitle("Hermes")
+        setupContent
             .task {
                 loadDestinations()
                 SharedStore.reloadWidgets()
@@ -81,16 +49,73 @@ struct ContentView: View {
             #if !os(macOS)
             .onOpenURL(perform: handleInternalURL)
             #endif
-        }
+    }
+
+    @ViewBuilder
+    private var setupContent: some View {
         #if os(macOS)
-        .frame(minWidth: 480, minHeight: 540)
+        macSetup
+        #else
+        iosSetup
         #endif
     }
 
     #if os(macOS)
-    private var localHermesSection: some View {
-        Section("On this Mac") {
+    private var macSetup: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                setupHeader
+                HStack(alignment: .top, spacing: 20) {
+                    VStack(spacing: 20) {
+                        macInstallationCard
+                        macDestinationEditor
+                    }
+                    .frame(maxWidth: .infinity, alignment: .top)
+
+                    VStack(spacing: 20) {
+                        macDestinationsCard
+                        widgetInstructionsCard
+                    }
+                    .frame(maxWidth: .infinity, alignment: .top)
+                }
+            }
+            .padding(24)
+        }
+        .frame(minWidth: 880, minHeight: 680)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var setupHeader: some View {
+        HStack(spacing: 16) {
+            Image("HermesAgent")
+                .resizable()
+                .renderingMode(.template)
+                .scaledToFit()
+                .foregroundStyle(.primary)
+                .frame(width: 56, height: 56)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Hermes Agent Widget")
+                    .font(.title3.weight(.semibold))
+                Text("One tap to your Hermes.")
+                    .foregroundStyle(.secondary)
+                Text(BuildIdentity.label)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer()
+        }
+        .padding(16)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(.separator.opacity(0.55), lineWidth: 1)
+        }
+    }
+
+    private var macInstallationCard: some View {
+        setupGroup("On this Mac") {
             LabeledContent("Hermes Desktop", value: installation.desktopURL == nil ? "Not found" : "Installed")
+            Divider()
             LabeledContent("Hermes CLI", value: cliStatusLabel)
             HStack {
                 Button("Open Desktop") { _ = launch(.desktop) }
@@ -99,28 +124,244 @@ struct ContentView: View {
                     .disabled(cliURL == nil)
                 Button("Check again") { refreshInstallation() }
             }
+            Divider()
             Button(cliURL == nil ? "Choose Hermes CLI…" : "Change Hermes CLI…") {
-                do {
-                    guard try PreferredCLIStore.chooseExecutable() != nil else { return }
-                    refreshInstallation()
-                    if cliURL == nil {
-                        error = "Hermes was selected, but access could not be restored. Try choosing it again."
-                    }
-                } catch {
-                    self.error = "Could not save access to Hermes: \(error.localizedDescription)"
-                }
+                chooseCLI()
             }
-            if cliURL == nil {
-                Text("macOS may block automatic access to ~/.local/bin. Choose the Hermes executable once to grant access. On this Mac it is usually ~/.local/bin/hermes.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Text("Each widget can independently choose a saved destination, Hermes Desktop, or Hermes CLI.")
+            Text("Each widget chooses Saved Destination, Hermes Desktop, or Hermes CLI.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
     }
 
+    private var macDestinationEditor: some View {
+        setupGroup(editingID == nil ? "Add destination" : "Edit destination") {
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
+                GridRow {
+                    Text("Name")
+                    TextField("Personal Hermes", text: $name)
+                }
+                GridRow {
+                    Text("Open with")
+                    Picker("", selection: $kind) {
+                        ForEach(DestinationKind.allCases, id: \.self) {
+                            Text($0.rawValue.capitalized).tag($0)
+                        }
+                    }
+                    .labelsHidden()
+                }
+                GridRow(alignment: .top) {
+                    Text("Link")
+                    TextField("HTTPS conversation link", text: $address)
+                }
+            }
+            Text(destinationHelp)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Test link") { validate { openURL($0) } }
+                Button(editingID == nil ? "Save destination" : "Save changes") {
+                    validate { url in
+                        saveEditor(url: url)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                if editingID != nil {
+                    Button("Cancel", action: clearEditor)
+                }
+            }
+        }
+    }
+
+    private var macDestinationsCard: some View {
+        setupGroup("Your destinations") {
+            if destinations.isEmpty {
+                Text("No destinations yet")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            ForEach(destinations) { item in
+                HStack(spacing: 12) {
+                    Image(systemName: destinationSymbol(item.kind))
+                        .frame(width: 28, height: 28)
+                        .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 7))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.name).lineLimit(1)
+                        Text(item.kind.rawValue.capitalized)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Link("Test", destination: item.url)
+                    Button("Edit") { beginEditing(item) }
+                    Button("Delete", role: .destructive) {
+                        delete(item)
+                    }
+                }
+                if item.id != destinations.last?.id { Divider() }
+            }
+        }
+    }
+
+    private var widgetInstructionsCard: some View {
+        setupGroup("Add the widget") {
+            Text("Add Hermes from the widget gallery. Edit each widget to choose what it opens.")
+            Text("No server connection or tokens needed.")
+                .foregroundStyle(.secondary)
+            Link("Get Hermes", destination: installURL)
+        }
+    }
+
+    private func setupGroup<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+            VStack(alignment: .leading, spacing: 12, content: content)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(.separator.opacity(0.55), lineWidth: 1)
+                }
+        }
+    }
+    #else
+    private var iosSetup: some View {
+        NavigationStack {
+            List {
+                Section {
+                    HStack(spacing: 14) {
+                        Image("HermesAgent")
+                            .resizable()
+                            .renderingMode(.template)
+                            .scaledToFit()
+                            .foregroundStyle(.primary)
+                            .frame(width: 48, height: 48)
+                        VStack(alignment: .leading) {
+                            Text("Hermes Agent Widget").font(.headline)
+                            Text("One tap to your Hermes.").foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                Section("Saved destinations") {
+                    if destinations.isEmpty {
+                        Text("No destinations yet").foregroundStyle(.secondary)
+                    }
+                    ForEach(destinations) { item in
+                        Button {
+                            beginEditing(item)
+                            showingEditor = true
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: destinationSymbol(item.kind))
+                                    .frame(width: 30, height: 30)
+                                    .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 7))
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.name).foregroundStyle(.primary)
+                                    Text(item.kind.rawValue.capitalized)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                    }
+                    .onDelete { offsets in
+                        save(destinations.enumerated().filter { !offsets.contains($0.offset) }.map(\.element))
+                    }
+                }
+                Section("Add Widget") {
+                    Text("Touch and hold the Home Screen, tap Add, then choose Hermes.")
+                    Text("Edit the widget to choose one saved destination.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("Hermes")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Add") {
+                        clearEditor()
+                        showingEditor = true
+                    }
+                }
+            }
+            .sheet(isPresented: $showingEditor) {
+                iosDestinationEditor
+            }
+        }
+    }
+
+    private var iosDestinationEditor: some View {
+        NavigationStack {
+            Form {
+                Section("Destination") {
+                    TextField("Name", text: $name)
+                    Picker("Type", selection: $kind) {
+                        ForEach(DestinationKind.allCases, id: \.self) {
+                            Text($0.rawValue.capitalized).tag($0)
+                        }
+                    }
+                    TextField("HTTPS conversation link", text: $address, axis: .vertical)
+                        .lineLimit(2...4)
+                }
+                Section {
+                    Text(destinationHelp)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Section {
+                    Button("Test link") { validate { openURL($0) } }
+                    Button(editingID == nil ? "Save destination" : "Save changes") {
+                        validate { url in
+                            saveEditor(url: url)
+                            showingEditor = false
+                        }
+                    }
+                    .fontWeight(.semibold)
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                if let editingID, let item = destinations.first(where: { $0.id == editingID }) {
+                    Section {
+                        Button("Delete destination", role: .destructive) {
+                            delete(item)
+                            showingEditor = false
+                        }
+                    }
+                }
+                if let error {
+                    Section { Text(error).foregroundStyle(.red) }
+                }
+            }
+            .navigationTitle(editingID == nil ? "Add Destination" : "Edit Destination")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        showingEditor = false
+                        clearEditor()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        validate { url in
+                            saveEditor(url: url)
+                            showingEditor = false
+                        }
+                    }
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+    }
+    #endif
+
+    #if os(macOS)
     private var cliURL: URL? {
         guard case let .found(url) = installation.cliState else { return nil }
         return url
@@ -135,54 +376,6 @@ struct ContentView: View {
     }
     #endif
 
-    private var destinationsSection: some View {
-        Section("Your destinations") {
-            if destinations.isEmpty {
-                Text("No destinations yet").foregroundStyle(.secondary)
-            }
-            ForEach(destinations) { item in
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text(item.name)
-                        Text(item.kind.rawValue.capitalized).font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Link("Test", destination: item.url)
-                    Button("Edit") { beginEditing(item) }
-                    Button("Delete", role: .destructive) {
-                        save(destinations.filter { $0.id != item.id })
-                        if editingID == item.id { clearEditor() }
-                    }
-                }
-            }
-        }
-    }
-
-    private var destinationEditor: some View {
-        Section(editingID == nil ? "Add destination" : "Edit destination") {
-            TextField("Name", text: $name)
-            Picker("Open with", selection: $kind) {
-                ForEach(DestinationKind.allCases, id: \.self) {
-                    Text($0.rawValue.capitalized).tag($0)
-                }
-            }
-            Label("Where to find this link", systemImage: "info.circle")
-                .font(.caption.weight(.semibold))
-                .help(destinationHelp)
-            Text(destinationHelp)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            TextField("HTTPS conversation link", text: $address)
-            HStack {
-                Button("Test link") { validate { openURL($0) } }
-                Button(editingID == nil ? "Save destination" : "Save changes") {
-                    validate(saveEditor)
-                }
-                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                if editingID != nil { Button("Cancel", action: clearEditor) }
-            }
-        }
-    }
 
     private var destinationHelp: String {
         switch kind {
@@ -197,6 +390,19 @@ struct ContentView: View {
 
     private var installURL: URL {
         URL(string: "https://hermes-agent.nousresearch.com/docs/getting-started/installation")!
+    }
+
+    private func destinationSymbol(_ kind: DestinationKind) -> String {
+        switch kind {
+        case .discord: "number"
+        case .telegram: "paperplane.fill"
+        case .dashboard: "rectangle.3.group"
+        }
+    }
+
+    private func delete(_ destination: Destination) {
+        save(destinations.filter { $0.id != destination.id })
+        if editingID == destination.id { clearEditor() }
     }
 
     private func loadDestinations() {
@@ -259,6 +465,18 @@ struct ContentView: View {
     }
 
     #if os(macOS)
+    private func chooseCLI() {
+        do {
+            guard try PreferredCLIStore.chooseExecutable() != nil else { return }
+            refreshInstallation()
+            if cliURL == nil {
+                error = "Hermes was selected, but access could not be restored. Try choosing it again."
+            }
+        } catch {
+            self.error = "Could not save access to Hermes: \(error.localizedDescription)"
+        }
+    }
+
     private func refreshInstallation() {
         installation = .detect()
         let accessRequired: Bool

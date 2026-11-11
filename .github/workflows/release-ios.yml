@@ -1,0 +1,138 @@
+name: Release unsigned iOS IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (for example, v0.7.1)
+        required: true
+        default: v0.7.1
+      prerelease:
+        description: Mark the GitHub release as a prerelease
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  release-ios:
+    runs-on: macos-15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Test shared core
+        run: swift test
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build unsigned iPhone app and widget
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project HermesAgentWidget.xcodeproj \
+            -scheme HermesIOS \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/HermesDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            build
+
+      - name: Verify and package unsigned IPA
+        id: package
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/HermesDerivedData/Build/Products/Release-iphoneos/HermesIOS.app"
+          extension="$app/PlugIns/HermesIOSWidget.appex"
+
+          test -d "$app"
+          test -x "$app/HermesIOS"
+          test -d "$extension"
+          test -x "$extension/HermesIOSWidget"
+
+          app_archs="$(lipo -archs "$app/HermesIOS")"
+          widget_archs="$(lipo -archs "$extension/HermesIOSWidget")"
+          echo "App architectures: $app_archs"
+          echo "Widget architectures: $widget_archs"
+          grep -qw arm64 <<<"$app_archs"
+          grep -qw arm64 <<<"$widget_archs"
+
+          version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Info.plist")"
+          build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Info.plist")"
+          expected_tag="v${version}"
+          if [[ "${{ inputs.tag }}" != "$expected_tag" ]]; then
+            echo "Release tag ${{ inputs.tag }} does not match app version $expected_tag" >&2
+            exit 1
+          fi
+
+          staging="$RUNNER_TEMP/ipa-staging"
+          output="$GITHUB_WORKSPACE/release"
+          mkdir -p "$staging/Payload" "$output"
+          cp -R "$app" "$staging/Payload/"
+          (
+            cd "$staging"
+            /usr/bin/zip -qry "$output/Hermes-Agent-Widget-${version}-unsigned.ipa" Payload
+          )
+
+          ipa="$output/Hermes-Agent-Widget-${version}-unsigned.ipa"
+          unzip -t "$ipa"
+          unzip -l "$ipa" | grep -F 'Payload/HermesIOS.app/PlugIns/HermesIOSWidget.appex/'
+          (
+            cd "$output"
+            shasum -a 256 "$(basename "$ipa")" > SHA256SUMS
+          )
+
+          cat > "$output/RELEASE_NOTES.md" <<EOF
+          ## Hermes Agent Widget ${version} (${build})
+
+          Native iOS companion app with a WidgetKit Home Screen widget for opening saved Hermes destinations.
+
+          ### Important: unsigned IPA
+
+          This IPA is **not signed by Apple and cannot be installed directly by tapping it on an iPhone**. Sign and install it with a tool such as AltStore, SideStore, or Sideloadly using your own Apple ID. Free Apple-ID signatures normally expire after seven days and must be refreshed.
+
+          The IPA contains both the arm64 iPhone app and the embedded arm64 WidgetKit extension. Third-party re-signing tools may rewrite or remove the App Group entitlement used to share saved destinations between the app and widget. If that happens, the widget may appear but not see destinations configured in the app.
+
+          SHA-256 hashes are provided in \`SHA256SUMS\`.
+          EOF
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hermes-Agent-Widget-${{ steps.package.outputs.version }}-unsigned
+          path: |
+            release/*.ipa
+            release/SHA256SUMS
+            release/RELEASE_NOTES.md
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          args=(
+            "${{ inputs.tag }}"
+            release/*.ipa
+            release/SHA256SUMS
+            --repo "$GITHUB_REPOSITORY"
+            --target "$GITHUB_SHA"
+            --title "Hermes Agent Widget ${{ steps.package.outputs.version }} (unsigned iOS IPA)"
+            --notes-file release/RELEASE_NOTES.md
+          )
+          if [[ "${{ inputs.prerelease }}" == "true" ]]; then
+            args+=(--prerelease)
+          fi
+          gh release create "${args[@]}"

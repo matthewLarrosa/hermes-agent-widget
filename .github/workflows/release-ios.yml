@@ -18,7 +18,9 @@ permissions:
 
 jobs:
   release-ios:
-    runs-on: macos-15
+    # macOS 14 runners include Xcode 16 and the iOS 18 SDK while generally
+    # having a shorter queue than the macOS 15 image.
+    runs-on: macos-14
     steps:
       - name: Check out source
         uses: actions/checkout@v5

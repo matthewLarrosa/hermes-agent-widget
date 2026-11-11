@@ -16,6 +16,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-ios-${{ inputs.tag }}
+  cancel-in-progress: false
+
 jobs:
   release-ios:
     runs-on: macos-15
@@ -49,6 +53,8 @@ jobs:
 
       - name: Verify and package unsigned IPA
         id: package
+        env:
+          TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
           app="$RUNNER_TEMP/HermesDerivedData/Build/Products/Release-iphoneos/HermesIOS.app"
@@ -68,9 +74,23 @@ jobs:
 
           version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Info.plist")"
           build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Info.plist")"
+          widget_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$extension/Info.plist")"
+          widget_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$extension/Info.plist")"
+          app_bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")"
+          widget_bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$extension/Info.plist")"
+          extension_point="$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$extension/Info.plist")"
+
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$app_bundle_id" == 'com.mlarrosa.HermesAgentWidget.iOS' ]]
+          [[ "$widget_bundle_id" == 'com.mlarrosa.HermesAgentWidget.iOS.Widget' ]]
+          [[ "$extension_point" == 'com.apple.widgetkit-extension' ]]
+          [[ "$widget_version" == "$version" ]]
+          [[ "$widget_build" == "$build" ]]
+
           expected_tag="v${version}"
-          if [[ "${{ inputs.tag }}" != "$expected_tag" ]]; then
-            echo "Release tag ${{ inputs.tag }} does not match app version $expected_tag" >&2
+          if [[ "$TAG" != "$expected_tag" ]]; then
+            echo "Release tag $TAG does not match app version $expected_tag" >&2
             exit 1
           fi
 
@@ -121,18 +141,35 @@ jobs:
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          VERSION: ${{ steps.package.outputs.version }}
         run: |
           set -euo pipefail
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            git fetch --no-tags origin "refs/tags/$TAG:refs/tags/$TAG"
+            tag_commit="$(git rev-list -n 1 "$TAG")"
+            if [[ "$tag_commit" != "$GITHUB_SHA" ]]; then
+              echo "Existing tag $TAG points to $tag_commit, not built commit $GITHUB_SHA" >&2
+              exit 1
+            fi
+            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "Release $TAG already exists; refusing to replace its assets" >&2
+              exit 1
+            fi
+          fi
+
           args=(
-            "${{ inputs.tag }}"
+            "$TAG"
             release/*.ipa
             release/SHA256SUMS
             --repo "$GITHUB_REPOSITORY"
             --target "$GITHUB_SHA"
-            --title "Hermes Agent Widget ${{ steps.package.outputs.version }} (unsigned iOS IPA)"
+            --title "Hermes Agent Widget $VERSION (unsigned iOS IPA)"
             --notes-file release/RELEASE_NOTES.md
           )
-          if [[ "${{ inputs.prerelease }}" == "true" ]]; then
+          if [[ "$PRERELEASE" == "true" ]]; then
             args+=(--prerelease)
           fi
           gh release create "${args[@]}"
